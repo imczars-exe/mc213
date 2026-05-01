@@ -25,6 +25,8 @@ const CONFIG = {
     iconUrl:     process.env.SERVER_ICON_URL    || '',
     modpackUrl:  process.env.MODPACK_URL        || '',
     modpackName: process.env.MODPACK_NAME       || 'Descargar Modpack',
+    extraModsUrl:  process.env.EXTRA_MODS_URL   || '',
+    extraModsName: process.env.EXTRA_MODS_NAME  || 'Mods adicionales',
   },
   interval: parseInt(process.env.CHECK_INTERVAL_SECONDS || '30', 10) * 1000,
 };
@@ -79,10 +81,8 @@ function buildEmbed(state, res) {
     ? stripColors(res.description)
     : stripColors(res?.description?.text);
 
-  // Ícono: usar favicon del servidor si no hay URL configurada
-  const favicon = CONFIG.server.iconUrl || (res?.favicon
-    ? res.favicon  // base64 data:image/png;base64,...
-    : null);
+  // Ícono: solo usar URL configurada en .env (Discord no acepta base64)
+  const favicon = CONFIG.server.iconUrl || null;
 
   const embed = new EmbedBuilder()
     .setColor(color)
@@ -124,6 +124,14 @@ function buildEmbed(state, res) {
     embed.addFields({
       name: '📦 Modpack',
       value: `[${CONFIG.server.modpackName}](${CONFIG.server.modpackUrl})`,
+      inline: false,
+    });
+  }
+
+  if (CONFIG.server.extraModsUrl) {
+    embed.addFields({
+      name: '🧩 Mods adicionales',
+      value: `[${CONFIG.server.extraModsName}](${CONFIG.server.extraModsUrl})`,
       inline: false,
     });
   }
