@@ -2,7 +2,9 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const mcping = require('mcping-js');
+const https  = require('https');
 
+// ── Validación ─────────────────────────────────────────────
 const required = ['DISCORD_TOKEN', 'DISCORD_CHANNEL_ID', 'MC_HOST'];
 for (const key of required) {
   if (!process.env[key] || process.env[key].includes('PEGA_')) {
@@ -11,6 +13,7 @@ for (const key of required) {
   }
 }
 
+// ── Configuración ──────────────────────────────────────────
 const CONFIG = {
   token:     process.env.DISCORD_TOKEN,
   channelId: process.env.DISCORD_CHANNEL_ID,
@@ -19,39 +22,125 @@ const CONFIG = {
     port: parseInt(process.env.MC_PORT || '25565', 10),
   },
   server: {
-    name:        process.env.SERVER_NAME        || 'Minecraft Server',
-    version:     process.env.SERVER_VERSION     || '',
-    modloader:   process.env.SERVER_MODLOADER   || 'Vanilla',
-    iconUrl:     process.env.SERVER_ICON_URL    || '',
-    modpackUrl:  process.env.MODPACK_URL        || '',
-    modpackName: process.env.MODPACK_NAME       || 'Descargar Modpack',
-    extraModsUrl:  process.env.EXTRA_MODS_URL   || '',
-    extraModsName: process.env.EXTRA_MODS_NAME  || 'Mods adicionales',
+    name:          process.env.SERVER_NAME        || 'Minecraft Server',
+    version:       process.env.SERVER_VERSION     || '',
+    modloader:     process.env.SERVER_MODLOADER   || 'Vanilla',
+    iconUrl:       process.env.SERVER_ICON_URL    || '',
+    modpackUrl:    process.env.MODPACK_URL        || '',
+    modpackName:   process.env.MODPACK_NAME       || 'Descargar Modpack',
+    extraModsUrl:  process.env.EXTRA_MODS_URL     || '',
+    extraModsName: process.env.EXTRA_MODS_NAME    || 'Mods adicionales',
   },
   interval: parseInt(process.env.CHECK_INTERVAL_SECONDS || '30', 10) * 1000,
+  drive: {
+    apiKey:   process.env.GOOGLE_API_KEY      || '',
+    folderId: process.env.DRIVE_FOLDER_ID     || '',
+    interval: parseInt(process.env.DRIVE_CHECK_INTERVAL_SECONDS || '300', 10) * 1000,
+  },
 };
 
+// ── Estado ─────────────────────────────────────────────────
 const STATE = { OFFLINE: 'offline', STARTING: 'starting', ONLINE: 'online' };
 let currentState    = STATE.OFFLINE;
 let statusMessageId = null;
 let startingTimer   = null;
 
+// Estado Drive
+let knownFiles = null; // null = primera vez, Set después
+
+// ── Cliente ────────────────────────────────────────────────
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// ── Ping al servidor Minecraft ─────────────────────────────
+// ── Minecraft ping ─────────────────────────────────────────
 function pingServer() {
   return new Promise((resolve) => {
     const server = new mcping.MinecraftServer(CONFIG.mc.host, CONFIG.mc.port);
-    server.ping(5000, 765, (err, res) => {
-      if (err || !res) {
-        resolve(null);
-      } else {
-        resolve(res);
-      }
-    });
+    server.ping(5000, 765, (err, res) => resolve(err || !res ? null : res));
   });
 }
 
+// ── Google Drive ───────────────────────────────────────────
+function fetchDriveFiles() {
+  return new Promise((resolve, reject) => {
+    const url = `https://www.googleapis.com/drive/v3/files?q='${CONFIG.drive.folderId}'+in+parents&fields=files(id,name,modifiedTime,webViewLink)&key=${CONFIG.drive.apiKey}`;
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.files || []);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
+async function checkDriveFolder() {
+  if (!CONFIG.drive.apiKey || !CONFIG.drive.folderId) return;
+
+  let files;
+  try {
+    files = await fetchDriveFiles();
+  } catch (err) {
+    console.error('⚠️ Error consultando Drive:', err.message);
+    return;
+  }
+
+  const currentIds = new Set(files.map(f => f.id));
+
+  // Primera vez — solo guardar estado sin avisar
+  if (knownFiles === null) {
+    knownFiles = currentIds;
+    console.log(`📂 Drive: ${files.length} archivo(s) detectado(s) inicialmente`);
+    return;
+  }
+
+  // Detectar archivos nuevos
+  const newFiles = files.filter(f => !knownFiles.has(f.id));
+
+  if (newFiles.length > 0) {
+    console.log(`📦 Drive: ${newFiles.length} mod(s) nuevo(s) detectado(s)`);
+    knownFiles = currentIds;
+    await notifyNewMods(newFiles);
+  }
+}
+
+async function notifyNewMods(newFiles) {
+  let channel;
+  try {
+    channel = await client.channels.fetch(CONFIG.channelId);
+  } catch {
+    return;
+  }
+
+  const fileList = newFiles
+    .map(f => `• [${f.name}](${f.webViewLink || CONFIG.server.extraModsUrl})`)
+    .join('\n');
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('🧩 ¡Mod(s) nuevo(s) disponible(s)!')
+    .setDescription(`Se agregaron **${newFiles.length}** mod(s) nuevo(s) a la carpeta de mods adicionales.\n\n${fileList}`)
+    .addFields({
+      name: '📂 Carpeta completa',
+      value: `[Ver todos los mods](${CONFIG.server.extraModsUrl || `https://drive.google.com/drive/folders/${CONFIG.drive.folderId}`})`,
+      inline: false,
+    })
+    .setFooter({ text: 'Actualiza tus mods antes de entrar al servidor' })
+    .setTimestamp();
+
+  try {
+    await channel.send({ embeds: [embed] });
+    console.log('📢 Notificación de mods nuevos enviada');
+  } catch (err) {
+    console.error('⚠️ Error enviando notificación de mods:', err.message);
+  }
+}
+
+// ── Embed del servidor ─────────────────────────────────────
 function stateAssets(state) {
   switch (state) {
     case STATE.ONLINE:   return { color: 0x57F287, emoji: '🟢', label: 'EN LÍNEA'  };
@@ -72,17 +161,9 @@ function stripColors(str) {
 function buildEmbed(state, res) {
   const { color, emoji, label } = stateAssets(state);
   const mlIcon  = modloaderIcon(CONFIG.server.modloader);
-
-  // Extraer datos del ping
   const online  = res?.players?.online ?? 0;
   const max     = res?.players?.max    ?? 0;
   const version = stripColors(res?.version?.name) || CONFIG.server.version || '?';
-  const motd    = typeof res?.description === 'string'
-    ? stripColors(res.description)
-    : stripColors(res?.description?.text);
-
-  // Ícono: solo usar URL configurada en .env (Discord no acepta base64)
-  const favicon = CONFIG.server.iconUrl || null;
 
   const embed = new EmbedBuilder()
     .setColor(color)
@@ -90,7 +171,7 @@ function buildEmbed(state, res) {
     .setFooter({ text: 'Última actualización' })
     .setTimestamp();
 
-  if (favicon) embed.setThumbnail(favicon);
+  if (CONFIG.server.iconUrl) embed.setThumbnail(CONFIG.server.iconUrl);
 
   if (state === STATE.ONLINE) {
     embed.addFields(
@@ -177,6 +258,7 @@ async function updateAndPost(channel, state, res) {
   }
 }
 
+// ── Loop Minecraft ─────────────────────────────────────────
 async function checkServer() {
   let channel;
   try {
@@ -186,7 +268,7 @@ async function checkServer() {
     return;
   }
 
-  const res      = await pingServer();
+  const res       = await pingServer();
   const reachable = res !== null;
 
   if (reachable) {
@@ -222,6 +304,7 @@ async function checkServer() {
   }
 }
 
+// ── Ready ──────────────────────────────────────────────────
 client.once('clientReady', async () => {
   console.log(`✅ Bot conectado como ${client.user.tag}`);
   console.log(`📡 Monitoreando: ${CONFIG.mc.host}:${CONFIG.mc.port}`);
@@ -238,8 +321,18 @@ client.once('clientReady', async () => {
     process.exit(1);
   }
 
+  // Iniciar loop de Minecraft
   await checkServer();
   setInterval(checkServer, CONFIG.interval);
+
+  // Iniciar loop de Drive si está configurado
+  if (CONFIG.drive.apiKey && CONFIG.drive.folderId) {
+    console.log(`📂 Drive: monitoreando carpeta cada ${CONFIG.drive.interval / 1000}s`);
+    await checkDriveFolder();
+    setInterval(checkDriveFolder, CONFIG.drive.interval);
+  } else {
+    console.log('📂 Drive: no configurado, omitiendo');
+  }
 });
 
 client.on('error', err => console.error('⚠️ Error Discord:', err.message));
