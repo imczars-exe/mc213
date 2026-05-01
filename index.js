@@ -93,7 +93,6 @@ function buildEmbed(state, res) {
   if (favicon) embed.setThumbnail(favicon);
 
   if (state === STATE.ONLINE) {
-    if (motd) embed.setDescription(`*${motd}*`);
     embed.addFields(
       { name: '📡 Estado',            value: `\`${label}\``,           inline: true },
       { name: '👥 Jugadores',         value: `\`${online} / ${max}\``, inline: true },
