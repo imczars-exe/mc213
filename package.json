@@ -1,0 +1,15 @@
+{
+  "name": "minecraft-discord-bot",
+  "version": "2.0.0",
+  "description": "Bot de Discord para monitorear tu servidor de Minecraft",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.5.0",
+    "mcping-js": "^1.5.0",
+    "minecraft-server-util": "^5.4.4"
+  }
+}
