@@ -224,7 +224,7 @@ function updatePresence(state, res) {
   const online = res?.players?.online ?? 0;
   const max    = res?.players?.max    ?? 0;
   const text   = state === STATE.ONLINE
-    ? `${emoji} ${label} · ${online}/${max} jugadores · 206.84.254.116:25565`
+    ? `${emoji} ${label} · ${online}/${max} jugadores`
     : `${emoji} ${label}`;
   client.user.setPresence({
     status: state === STATE.ONLINE ? 'online' : state === STATE.STARTING ? 'idle' : 'dnd',
