@@ -101,10 +101,47 @@ async function checkDriveFolder() {
   // Detectar archivos nuevos
   const newFiles = files.filter(f => !knownFiles.has(f.id));
 
+  // Detectar archivos eliminados
+  const removedIds = [...knownFiles].filter(id => !currentIds.has(id));
+
+  knownFiles = currentIds;
+
   if (newFiles.length > 0) {
     console.log(`📦 Drive: ${newFiles.length} mod(s) nuevo(s) detectado(s)`);
-    knownFiles = currentIds;
     await notifyNewMods(newFiles);
+  }
+
+  if (removedIds.length > 0) {
+    console.log(`🗑️ Drive: ${removedIds.length} mod(s) eliminado(s) detectado(s)`);
+    await notifyRemovedMods(removedIds.length);
+  }
+}
+
+async function notifyRemovedMods(count) {
+  let channel;
+  try {
+    channel = await client.channels.fetch(CONFIG.channelId);
+  } catch {
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0xED4245)
+    .setTitle('🗑️ Mod(s) eliminado(s)')
+    .setDescription(`Se eliminaron **${count}** mod(s) de la carpeta de mods adicionales. Revisa la carpeta y actualiza tus mods.`)
+    .addFields({
+      name: '📂 Carpeta actualizada',
+      value: `[Ver mods actuales](${CONFIG.server.extraModsUrl || `https://drive.google.com/drive/folders/${CONFIG.drive.folderId}`})`,
+      inline: false,
+    })
+    .setFooter({ text: 'Actualiza tus mods antes de entrar al servidor' })
+    .setTimestamp();
+
+  try {
+    await channel.send({ embeds: [embed] });
+    console.log('📢 Notificación de mods eliminados enviada');
+  } catch (err) {
+    console.error('⚠️ Error enviando notificación:', err.message);
   }
 }
 
@@ -133,7 +170,7 @@ async function notifyNewMods(newFiles) {
     .setTimestamp();
 
   try {
-    await channel.send({ embeds: [embed] });
+    await channel.send({ content: '@everyone', embeds: [embed] });
     console.log('📢 Notificación de mods nuevos enviada');
   } catch (err) {
     console.error('⚠️ Error enviando notificación de mods:', err.message);
