@@ -170,7 +170,7 @@ async function notifyNewMods(newFiles) {
     .setTimestamp();
 
   try {
-    await channel.send({ content: '', embeds: [embed] });
+    await channel.send({ embeds: [embed] });
     console.log('📢 Notificación de mods nuevos enviada');
   } catch (err) {
     console.error('⚠️ Error enviando notificación de mods:', err.message);
